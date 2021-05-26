@@ -36,7 +36,7 @@ contract HunnyOracle is Ownable {
     }
 
     function initialize() internal {
-        IUniswapV2Pair _pair = IUniswapV2Pair(UniswapV2Library.pairFor(Constants.PANCAKE_FACTORY, hunnyToken, Constants.WBNB));
+        IUniswapV2Pair _pair = IUniswapV2Pair(IUniswapV2Factory(Constants.PANCAKE_FACTORY).getPair(hunnyToken, Constants.WBNB));
 
         pair = _pair;
 
@@ -75,7 +75,7 @@ contract HunnyOracle is Ownable {
     }
 
     function capture() public view returns(uint224) {
-        IUniswapV2Pair _pair = IUniswapV2Pair(UniswapV2Library.pairFor(Constants.PANCAKE_FACTORY, hunnyToken, Constants.WBNB));
+        IUniswapV2Pair _pair = IUniswapV2Pair(IUniswapV2Factory(Constants.PANCAKE_FACTORY).getPair(hunnyToken, Constants.WBNB));
         if (_pair.token0() == hunnyToken) {
             return price0Average.mul(1).decode144();
         } else {
