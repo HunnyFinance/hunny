@@ -7,6 +7,7 @@ import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+import "../../Constants.sol";
 import "../../library/legacy/RewardsDistributionRecipient.sol";
 import "../../library/legacy/Pausable.sol";
 import "../../interfaces/legacy/IStrategyHelper.sol";
@@ -35,28 +36,31 @@ contract CakeFlipVault is IStrategyLegacy, RewardsDistributionRecipient, Reentra
     mapping(address => uint256) private _balances;
 
     /* ========== CAKE     ============= */
-    address private constant CAKE = 0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82;
-    IMasterChef private constant CAKE_MASTER_CHEF = IMasterChef(0x73feaa1eE314F8c655E354234017bE2193C9E24E);
+    address private CAKE = Constants.CAKE;
+    IMasterChef private CAKE_MASTER_CHEF;
     uint public poolId;
-    address public keeper = 0x793074D9799DC3c6039F8056F1Ba884a73462051;
+    address public keeper = Constants.HUNNY_KEEPER;
     mapping (address => uint) public depositedAt;
 
     /* ========== HUNNY HELPER / MINTER ========= */
-    IStrategyHelper public helper = IStrategyHelper(0x154d803C328fFd70ef5df52cb027d82821520ECE);
+    IStrategyHelper public helper;
     IHunnyMinter public minter;
 
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(uint _pid) public {
+    constructor(uint _pid, address cake, address cakeMasterChef, address cakeVault, address hunnyMinter) public {
+        CAKE = cake;
+        CAKE_MASTER_CHEF = IMasterChef(cakeMasterChef);
+
         (address _token,,,) = CAKE_MASTER_CHEF.poolInfo(_pid);
         stakingToken = IBEP20(_token);
         stakingToken.safeApprove(address(CAKE_MASTER_CHEF), uint(~0));
         poolId = _pid;
 
         rewardsDistribution = msg.sender;
-        setMinter(IHunnyMinter(0x0B4A714AAf59E46cb1900E3C031017Fd72667EfE));
-        setRewardsToken(0x9a8235aDA127F6B5532387A029235640D1419e8D);
+        setMinter(IHunnyMinter(hunnyMinter));
+        setRewardsToken(cakeVault); // cake vault address
     }
 
     /* ========== VIEWS ========== */

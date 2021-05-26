@@ -9,6 +9,7 @@ import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 import "./PancakeSwap.sol";
 import "../../Constants.sol";
 import "../../interfaces/IHunnyMinter.sol";
+import "../../interfaces/IHunnyOracle.sol";
 import "../../interfaces/legacy/IStakingRewards.sol";
 import "../../interfaces/legacy/IStrategyHelper.sol";
 
@@ -27,9 +28,13 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
     uint public PERFORMANCE_FEE = 3000; // 30%
 
     uint public override hunnyPerProfitBNB;
+    uint public override hunnyPerBlockLottery;
+    uint public lastLotteryMintBlock;
     uint public hunnyPerHunnyBNBFlip;
 
     address public hunnyPool;
+    address public lotteryPool;
+    IHunnyOracle public oracle;
     IStrategyHelper public helper;
 
     mapping (address => bool) private _minters;
@@ -39,12 +44,16 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         _;
     }
 
-    constructor(address _hunny, address _hunnyPool, address _helper) PancakeSwap(_hunny) public {
+    constructor(address _hunny, address _hunnyPool, address _lotteryPool, address _oracle, address _helper) PancakeSwap(_hunny) public {
         hunny = BEP20(_hunny);
         hunnyPool = _hunnyPool;
+        lotteryPool = _lotteryPool;
+        oracle = IHunnyOracle(_oracle);
         helper = IStrategyHelper(_helper);
 
         hunnyPerProfitBNB = Constants.HUNNY_PER_PROFIT_BNB;
+        hunnyPerBlockLottery = Constants.HUNNY_PER_BLOCK_LOTTERY;
+        lastLotteryMintBlock = block.number;
         hunnyPerHunnyBNBFlip = Constants.HUNNY_PER_HUNNY_BNB_FLIP;
         hunny.approve(hunnyPool, uint(~0));
     }
@@ -83,9 +92,18 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         hunnyPerHunnyBNBFlip = _hunnyPerHunnyBNBFlip;
     }
 
+    function setHunnyPerBlockLottery(uint _hunnyPerBlockLottery) external onlyOwner {
+        hunnyPerBlockLottery = _hunnyPerBlockLottery;
+    }
+
     function setHelper(IStrategyHelper _helper) external onlyOwner {
         require(address(_helper) != address(0), "zero address");
         helper = _helper;
+    }
+
+    function setOracle(IHunnyOracle _oracle) external onlyOwner {
+        require(address(_oracle) != address(0), "zero address");
+        oracle = _oracle;
     }
 
     function isMinter(address account) override view public returns(bool) {
@@ -130,6 +148,10 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         uint contribution = helper.tvlInBNB(flipToken, hunnyBNBAmount).mul(_performanceFee).div(feeSum);
         uint mintHunny = amountHunnyToMint(contribution);
         mint(mintHunny, to);
+
+        // addition step
+        // update oracle price
+        oracle.update();
     }
 
     function mintForHunnyBNB(uint amount, uint duration, address to) override external onlyMinter {
@@ -145,5 +167,20 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         uint hunnyForDev = amount.mul(15).div(100);
         hunny.mint(hunnyForDev);
         IStakingRewards(hunnyPool).stakeTo(hunnyForDev, dev);
+
+        // mint for lottery pool
+        mintForLottery();
+    }
+
+    // only after when lottery pool address was set
+    // token calculated from the block when dev set lottery pool address only
+    function mintForLottery() private {
+        if (lotteryPool != address(0)) {
+            uint amountHunny = block.number.sub(lastLotteryMintBlock).mul(hunnyPerBlockLottery);
+            hunny.mint(amountHunny);
+            hunny.transfer(lotteryPool, amountHunny);
+        }
+
+        lastLotteryMintBlock = block.number;
     }
 }

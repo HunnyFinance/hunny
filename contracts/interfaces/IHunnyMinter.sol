@@ -11,6 +11,7 @@ interface IHunnyMinter {
     function mintForHunnyBNB(uint amount, uint duration, address to) external;
 
     function hunnyPerProfitBNB() view external returns(uint);
+    function hunnyPerBlockLottery() view external returns(uint);
     function WITHDRAWAL_FEE_FREE_PERIOD() view external returns(uint);
     function WITHDRAWAL_FEE() view external returns(uint);
 

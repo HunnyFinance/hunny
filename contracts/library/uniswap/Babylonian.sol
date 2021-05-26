@@ -1,36 +1,21 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.6.12;
+pragma solidity ^0.6.12;
 
-import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
-
-
-library HomoraMath {
-    using SafeMath for uint;
-
-    function divCeil(uint lhs, uint rhs) internal pure returns (uint) {
-        return lhs.add(rhs).sub(1) / rhs;
-    }
-
-    function fmul(uint lhs, uint rhs) internal pure returns (uint) {
-        return lhs.mul(rhs) / (2**112);
-    }
-
-    function fdiv(uint lhs, uint rhs) internal pure returns (uint) {
-        return lhs.mul(2**112) / rhs;
-    }
-
-    // implementation from https://github.com/Uniswap/uniswap-lib/commit/99f3f28770640ba1bb1ff460ac7c5292fb8291a0
-    // original implementation: https://github.com/abdk-consulting/abdk-libraries-solidity/blob/master/ABDKMath64x64.sol#L687
-    function sqrt(uint x) internal pure returns (uint) {
+// computes square roots using the babylonian method
+// https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Babylonian_method
+library Babylonian {
+    // credit for this implementation goes to
+    // https://github.com/abdk-consulting/abdk-libraries-solidity/blob/master/ABDKMath64x64.sol#L687
+    function sqrt(uint256 x) internal pure returns (uint256) {
         if (x == 0) return 0;
-        uint xx = x;
-        uint r = 1;
-
+        // this block is equivalent to r = uint256(1) << (BitMath.mostSignificantBit(x) / 2);
+        // however that code costs significantly more gas
+        uint256 xx = x;
+        uint256 r = 1;
         if (xx >= 0x100000000000000000000000000000000) {
             xx >>= 128;
             r <<= 64;
         }
-
         if (xx >= 0x10000000000000000) {
             xx >>= 64;
             r <<= 32;
@@ -54,7 +39,6 @@ library HomoraMath {
         if (xx >= 0x8) {
             r <<= 1;
         }
-
         r = (r + x / r) >> 1;
         r = (r + x / r) >> 1;
         r = (r + x / r) >> 1;
@@ -62,7 +46,7 @@ library HomoraMath {
         r = (r + x / r) >> 1;
         r = (r + x / r) >> 1;
         r = (r + x / r) >> 1; // Seven iterations should be enough
-        uint r1 = x / r;
+        uint256 r1 = x / r;
         return (r < r1 ? r : r1);
     }
 }

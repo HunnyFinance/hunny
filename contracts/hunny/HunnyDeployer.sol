@@ -2,176 +2,135 @@
 pragma solidity ^0.6.12;
 
 import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
+import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
 
 import "./HunnyToken.sol";
 import "./HunnyPresale.sol";
+import "./HunnyOracle.sol";
 import "./legacy/HunnyMinter.sol";
 import "../Constants.sol";
 import "../vaults/legacy/StrategyHelperV1.sol";
 import "../vaults/legacy/HunnyPool.sol";
 import "../vaults/legacy/HunnyBNBPool.sol";
+import "../vaults/legacy/CakeVault.sol";
+import "../vaults/legacy/CakeFlipVault.sol";
 import "../interfaces/IPancakeRouter02.sol";
 
-contract Deployer1 {
+
+// assume that the presale contract has been deployed
+// deploy following contract only when the presale ended
+// ready for add liquidity and open legacy pools
+contract Deployer1 is Ownable {
     HunnyToken public hunny;
+    HunnyOracle public hunnyOracle;
     StrategyHelperV1 public helper;
-    HunnyPresale public presale;
 
-    constructor() public {
-        // deploy hunny token
-        hunny = new HunnyToken();
-
-        helper = new StrategyHelperV1();
-
-        presale = new HunnyPresale();
-    }
-
-    function step1_configPresaleMoney(
-        uint256 _exchangeRate,
-        uint256 _minBNBAmount,
-        uint256 _maxBNBAmount,
-        uint256 _publicBNBTotal,
-        uint256 _whitelistBNBTotal
-    ) public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-        presale.configMoney(
-            _exchangeRate,
-            _minBNBAmount,
-            _maxBNBAmount,
-            _publicBNBTotal,
-            _whitelistBNBTotal
-        );
-    }
-
-    function step2_configPresaleTime(
-        uint _startTime,
-        uint _endTime
-    ) public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-        presale.configTime(_startTime, _endTime);
-    }
-
-    function configPresaleWhitelist(address account, bool allow) public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-        presale.configWhitelist(account, allow);
-    }
-
-    function changeOwner(address deployer3) public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-
-        hunny.transferOwnership(deployer3);
-        presale.transferOwnership(deployer3);
-        helper.transferOwnership(deployer3);
-    }
-}
-
-contract Deployer2 {
-    Deployer1 public deployer1;
     HunnyPool public hunnyPool;
     HunnyBNBPool public hunnyBNBPool;
-    HunnyMinter public minter;
+    HunnyMinter public hunnyMinter;
 
-    constructor(address deployer1Address) public {
-        deployer1 = Deployer1(deployer1Address);
+    constructor(address presaleAddress) public {
+        // deploy hunny token
+        hunny = new HunnyToken();
+        hunnyOracle = new HunnyOracle(address(hunny));
+        helper = new StrategyHelperV1(address(hunnyOracle));
 
         // deploy HUNNY Pool
         hunnyPool = new HunnyPool(
-            address(deployer1.hunny()),
-            address(deployer1.presale()),
-            address(deployer1.helper())
+            address(hunny),
+            address(presaleAddress),
+            address(helper)
         );
 
-        // end the presale
+        // deploy HUNNY BNB pool
         hunnyBNBPool = new HunnyBNBPool(
-            address(deployer1.hunny()),
-            address(deployer1.presale()),
-            address(deployer1.helper())
+            address(hunny),
+            address(presaleAddress),
+            address(helper)
         );
 
         // deploy hunny minter
-        minter = new HunnyMinter(
-            address(deployer1.hunny()),
+        hunnyMinter = new HunnyMinter(
+            address(hunny),
             address(hunnyPool),
-            address(deployer1.helper())
+            address(Constants.HUNNY_LOTTERY),
+            address(hunnyOracle),
+            address(helper)
         );
     }
 
-    function changeOwner(address deployer3) public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-
-        hunnyPool.transferOwnership(deployer3);
-        hunnyBNBPool.transferOwnership(deployer3);
-        minter.transferOwnership(deployer3);
+    function transferContractOwner(address deployer2) public onlyOwner {
+        hunny.transferOwnership(deployer2);
+        hunnyOracle.transferOwnership(deployer2);
+        helper.transferOwnership(deployer2);
+        hunnyPool.transferOwnership(deployer2);
+        hunnyBNBPool.transferOwnership(deployer2);
+        hunnyMinter.transferOwnership(deployer2);
     }
 }
 
-contract Deployer3 {
+contract Deployer2 is Ownable {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
 
     Deployer1 public deployer1;
-    Deployer2 public deployer2;
+    HunnyPresale public presale;
 
-    constructor(address deployer2Address) public {
-        deployer2 = Deployer2(deployer2Address);
-        deployer1 = Deployer1(deployer2.deployer1());
+    constructor(address deployer1Address, address payable presaleAddress) public {
+        deployer1 = Deployer1(deployer1Address);
+        presale = HunnyPresale(presaleAddress);
     }
 
-    // allow deployer3 receive BNB from presale contract
+    // allow deployer2 receive BNB from presale contract
     receive() external payable{}
 
-    function step1_presaleInitialize() public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-
+    function step1_presaleInitialize() public onlyOwner {
         // mint token for presale contract
-        deployer1.hunny().mint(address(deployer1.presale()), deployer1.presale().totalBalance());
-        deployer1.hunny().mint(address(this), deployer1.presale().totalBalance().div(2));
+        deployer1.hunny().mint(address(presale), presale.totalBalance());
+
+        // this part used to add liquidity and distribute to HUNNY pool as reward
+        deployer1.hunny().mint(address(this), presale.totalBalance().div(2));
 
         // initialize presale
-        deployer1.presale().initialize(
+        presale.initialize(
             address(deployer1.hunny()),
-            address(deployer2.hunnyBNBPool()),
-            address(deployer2.hunnyPool())
+            address(deployer1.hunnyBNBPool()),
+            address(deployer1.hunnyPool())
         );
 
         // set flip token
-        deployer2.hunnyBNBPool().setFlipToken(deployer1.presale().flipToken());
+        deployer1.hunnyBNBPool().setFlipToken(presale.flipToken());
 
         // set rewards token
-        deployer2.hunnyPool().setRewardsToken(deployer1.presale().flipToken());
+        deployer1.hunnyPool().setRewardsToken(presale.flipToken());
     }
 
-    function step2_presaleDistributeTokens() public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-
-        deployer1.presale().distributeTokens(0);
+    function step2_presaleDistributeTokens() public onlyOwner {
+        presale.distributeTokens(0);
     }
 
-    function step3_presaleFinalize() public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-
-        deployer1.presale().finalize();
+    function step3_presaleFinalize() public onlyOwner {
+        // transfer remain fund to this address
+        presale.finalize();
 
         // transfer HUNNY token ownership
-        deployer1.hunny().transferOwnership(address(deployer2.minter()));
+        deployer1.hunny().transferOwnership(address(deployer1.hunnyMinter()));
 
         // set minter role for HUNNY-BNB Hive Pool
-        deployer2.minter().setMinter(address(deployer2.hunnyBNBPool()), true);
+        deployer1.hunnyMinter().setMinter(address(deployer1.hunnyBNBPool()), true);
 
         // set minter address in HUNNY-BNB Hive Pool
-        deployer2.hunnyBNBPool().setMinter(IHunnyMinter(address(deployer2.minter())));
+        deployer1.hunnyBNBPool().setMinter(IHunnyMinter(address(deployer1.hunnyMinter())));
 
         // set stake permission for Hunny Minter from HUNNY Hive Pool
-        deployer2.hunnyPool().setStakePermission(address(deployer2.minter()), true);
+        deployer1.hunnyPool().setStakePermission(address(deployer1.hunnyMinter()), true);
 
-        // set reward distribution on HUNNY Hive Pool
-        deployer2.hunnyPool().setRewardsDistribution(address(deployer2.minter()));
+        // transfer hunny oracle owner to hunny minter
+        deployer1.hunnyOracle().transferOwnership(address(deployer1.hunnyMinter()));
     }
 
-    function step4_setupLiquidityReward(uint256 bnbAmount) public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
-
+    function step4_setupLiquidityReward(uint256 bnbAmount) public onlyOwner {
         IPancakeRouter02 router = IPancakeRouter02(Constants.PANCAKE_ROUTER);
 
         address token = address(deployer1.hunny());
@@ -181,31 +140,78 @@ contract Deployer3 {
         IBEP20(token).safeApprove(address(router), tokenAmount);
         router.addLiquidityETH{value: bnbAmount}(token, tokenAmount, 0, 0, address(this), block.timestamp);
 
-        payable(Constants.HUNNY_DEPLOYER).transfer(address(this).balance);
-        deployer1.hunny().transfer(Constants.HUNNY_DEPLOYER, deployer1.hunny().balanceOf(address(this)));
+        payable(owner()).transfer(address(this).balance);
+        deployer1.hunny().transfer(owner(), deployer1.hunny().balanceOf(address(this)));
+
+        // set reward distribution on this address
+        deployer1.hunnyPool().setRewardsDistribution(address(this));
 
         // transfer reward to HUNNY Hive Pool
-        uint256 rewardAmount = IBEP20(deployer1.presale().flipToken()).balanceOf(address(this));
-        IBEP20(deployer1.presale().flipToken()).transfer(address(deployer2.hunnyPool()), rewardAmount);
-        deployer2.hunnyPool().notifyRewardAmount(rewardAmount);
+        uint256 rewardAmount = IBEP20(presale.flipToken()).balanceOf(address(this));
+        IBEP20(presale.flipToken()).transfer(address(deployer1.hunnyPool()), rewardAmount);
+        deployer1.hunnyPool().notifyRewardAmount(rewardAmount);
+
+        // set reward distribution on HUNNY Hive Pool
+        deployer1.hunnyPool().setRewardsDistribution(address(deployer1.hunnyMinter()));
     }
 
-    function changeOwner() public {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
+    function transferContractOwner(address newOwner) public onlyOwner {
+        presale.transferOwnership(newOwner);
 
-        deployer1.hunny().transferOwnership(Constants.HUNNY_DEPLOYER);
-        deployer1.presale().transferOwnership(Constants.HUNNY_DEPLOYER);
-        deployer1.helper().transferOwnership(Constants.HUNNY_DEPLOYER);
+        deployer1.helper().transferOwnership(newOwner);
 
-        deployer2.hunnyPool().transferOwnership(Constants.HUNNY_DEPLOYER);
-        deployer2.hunnyBNBPool().transferOwnership(Constants.HUNNY_DEPLOYER);
-        deployer2.minter().transferOwnership(Constants.HUNNY_DEPLOYER);
+        deployer1.hunnyPool().transferOwnership(newOwner);
+        deployer1.hunnyBNBPool().transferOwnership(newOwner);
+        deployer1.hunnyMinter().transferOwnership(newOwner);
     }
 
-    function emergencyTransferBNB() public payable {
-        require(msg.sender == Constants.HUNNY_DEPLOYER, "!dev");
+    // in the emergency situation, transfer remain fund to dev
+    // dev will init liquidity and distribute reward
+    function emergencyTransfer() public payable onlyOwner {
+        payable(owner()).transfer(address(this).balance);
+        deployer1.hunny().transfer(owner(), deployer1.hunny().balanceOf(address(this)));
+    }
+}
 
-        payable(Constants.HUNNY_DEPLOYER).transfer(address(this).balance);
-        deployer1.hunny().transfer(Constants.HUNNY_DEPLOYER, deployer1.hunny().balanceOf(address(this)));
+// make sure Deployer1 and Deployer2 work well
+// deployer3 deploy CAKE vault and FLIP to CAKE pools
+// external deployer address need to update token price feed on StrategyHelperV1 contract
+contract Deployer3 is Ownable {
+    Deployer2 public deployer2;
+
+    CakeVault public cakeVault;
+    CakeFlipVault public flipCakeBnb;
+    CakeFlipVault public flipBusdBnb;
+    CakeFlipVault public flipBusdUsdt;
+
+    constructor(address payable deployer2Address) public {
+        deployer2 = Deployer2(deployer2Address);
+
+        cakeVault = new CakeVault(Constants.CAKE, Constants.PANCAKE_CHEF);
+
+        // deploy CAKE-BNB vault
+        flipCakeBnb = new CakeFlipVault(
+            Constants.PANCAKE_CAKE_BNB_PID, // pancake master chef pid
+            Constants.CAKE,
+            Constants.PANCAKE_CHEF,
+            address(cakeVault),
+            address(deployer2.deployer1().hunnyMinter())
+        );
+
+        // deploy BUSD-BNB vault
+        flipCakeBnb = new CakeFlipVault(
+            Constants.PANCAKE_BUSD_BNB_PID, // pancake master chef pid
+            Constants.CAKE,
+            Constants.PANCAKE_CHEF,
+            address(cakeVault),
+            address(deployer2.deployer1().hunnyMinter())
+        );
+    }
+
+    function transferContractOwner(address newOwner) public onlyOwner {
+        cakeVault.transferOwnership(newOwner);
+        flipCakeBnb.transferOwnership(newOwner);
+        flipBusdBnb.transferOwnership(newOwner);
+//        flipBusdUsdt.transferOwnership(owner());
     }
 }

@@ -31,6 +31,7 @@ import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 
+import "../../Constants.sol";
 import "../../interfaces/IMasterChef.sol";
 import "../../interfaces/IHunnyMinter.sol";
 import "../../interfaces/legacy/IStrategyHelper.sol";
@@ -40,20 +41,23 @@ contract CakeVault is IStrategyLegacy, Ownable {
     using SafeBEP20 for IBEP20;
     using SafeMath for uint256;
 
-    IBEP20 private constant CAKE = IBEP20(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
-    IMasterChef private constant CAKE_MASTER_CHEF = IMasterChef(0x73feaa1eE314F8c655E354234017bE2193C9E24E);
+    IBEP20 private CAKE;
+    IMasterChef private CAKE_MASTER_CHEF;
 
-    address public keeper = 0x793074D9799DC3c6039F8056F1Ba884a73462051;
+    address public keeper = Constants.HUNNY_KEEPER;
 
-    uint public constant poolId = 0;
+    uint public poolId = 0;
 
     uint public totalShares;
     mapping (address => uint) private _shares;
 
-    IStrategyHelper public helper = IStrategyHelper(0x154d803C328fFd70ef5df52cb027d82821520ECE);
+    IStrategyHelper public helper;
     mapping (address => bool) private _whitelist;
 
-    constructor() public {
+    constructor(address cake, address cakeMasterChef) public {
+        CAKE = IBEP20(cake);
+        CAKE_MASTER_CHEF = IMasterChef(cakeMasterChef);
+
         CAKE.safeApprove(address(CAKE_MASTER_CHEF), uint(~0));
     }
 

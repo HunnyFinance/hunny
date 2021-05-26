@@ -19,6 +19,17 @@ interface IHunnyPool {
     function stakeTo(uint256 amount, address _to) external;
 }
 
+library PresaleConstants {
+    // presale
+    uint constant PRESALE_START_TIME = 1621239775;
+    uint constant PRESALE_END_TIME = 1621844575;
+    uint256 constant PRESALE_EXCHANGE_RATE = 5500;      // 1 BNB ~ 5500 HUNNY
+    uint256 constant PRESALE_MIN_AMOUNT = 2e17;         // 0.2 BNB
+    uint256 constant PRESALE_MAX_AMOUNT = 4e18;         // 4 BNB (not whitelist only)
+    uint256 constant PRESALE_PUBLIC_AMOUNT = 20e18;     // 20 BNB available for public address
+    uint256 constant PRESALE_WHITELIST_AMOUNT = 40e18;  // 40 BNB available for whitelist address
+}
+
 contract HunnyPresale is Ownable {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
@@ -51,16 +62,16 @@ contract HunnyPresale is Ownable {
     event Whitelisted(address indexed account, bool indexed allow);
 
     constructor() public {
-        startTime = Constants.PRESALE_START_TIME;
-        endTime = Constants.PRESALE_END_TIME;
+        startTime = PresaleConstants.PRESALE_START_TIME;
+        endTime = PresaleConstants.PRESALE_END_TIME;
 
-        exchangeRate = Constants.PRESALE_EXCHANGE_RATE;
+        exchangeRate = PresaleConstants.PRESALE_EXCHANGE_RATE;
 
-        minAmount = Constants.PRESALE_MIN_AMOUNT.mul(Constants.PRESALE_EXCHANGE_RATE);
-        maxAmount = Constants.PRESALE_MAX_AMOUNT.mul(Constants.PRESALE_EXCHANGE_RATE);
+        minAmount = PresaleConstants.PRESALE_MIN_AMOUNT.mul(PresaleConstants.PRESALE_EXCHANGE_RATE);
+        maxAmount = PresaleConstants.PRESALE_MAX_AMOUNT.mul(PresaleConstants.PRESALE_EXCHANGE_RATE);
 
-        publicSaleTotal = Constants.PRESALE_PUBLIC_AMOUNT.mul(Constants.PRESALE_EXCHANGE_RATE);
-        whitelistSaleTotal = Constants.PRESALE_WHITELIST_AMOUNT.mul(Constants.PRESALE_EXCHANGE_RATE);
+        publicSaleTotal = PresaleConstants.PRESALE_PUBLIC_AMOUNT.mul(PresaleConstants.PRESALE_EXCHANGE_RATE);
+        whitelistSaleTotal = PresaleConstants.PRESALE_WHITELIST_AMOUNT.mul(PresaleConstants.PRESALE_EXCHANGE_RATE);
 
         // add whitelist addresses
         configWhitelist(0xF628FA04Ae606530ef9EcAa79586b8d338Db94B8, true);
