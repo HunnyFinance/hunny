@@ -22,8 +22,6 @@ contract StrategyHelperV1 is Ownable {
     IBEP20 private CAKE = IBEP20(Constants.CAKE);
     IBEP20 private BUSD = IBEP20(Constants.BUSD);
 
-    uint constant private BOOTSTRAP_HUNNY_PRICE_IN_BNB = 250000000000000; // 1 BNB ~ 4000 HUNNY
-
     IBEP20 public hunny;
     IHunnyOracle public oracle;
     IMasterChef private master = IMasterChef(Constants.PANCAKE_CHEF);
@@ -40,12 +38,7 @@ contract StrategyHelperV1 is Ownable {
         if (_token == address(CAKE)) {
             return  cakePriceInBNB();
         } else if (_token == address(hunny)) {
-            uint avgPrice = oracle.capture();
-            if (avgPrice != 0) {
-                return avgPrice;
-            } else {
-                return BOOTSTRAP_HUNNY_PRICE_IN_BNB;
-            }
+            return oracle.capture();
         } else {
             return unsafeTokenPriceInBNB(_token);
         }

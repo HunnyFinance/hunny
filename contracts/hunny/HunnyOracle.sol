@@ -16,7 +16,8 @@ import "../library/uniswap/UniswapV2OracleLibrary.sol";
 contract HunnyOracle is Ownable {
     using FixedPoint for *;
 
-    uint public constant PERIOD = 1 hours;
+    uint public constant PERIOD = 10 minutes;
+    uint112 public constant BOOTSTRAP_HUNNY_PRICE = 250000000000000; // 1 BNB = 4000 HUNNY
 
     bool public initialized;
 
@@ -49,47 +50,56 @@ contract HunnyOracle is Ownable {
         // get the blockTimestampLast
         (,, blockTimestampLast) = _pair.getReserves();
 
+        _update();
         initialized = true;
     }
 
-    function update() external {
+    function update() public onlyOwner {
         if (!initialized) {
             initialize();
         }
 
-        (uint price0Cumulative, uint price1Cumulative, uint32 blockTimestamp) =
+        (, , uint32 blockTimestamp) =
         UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
         uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired
 
         // ensure that at least one full period has passed since the last update
         if (timeElapsed >= PERIOD) {
-            // overflow is desired, casting never truncates
-            // cumulative price is in (uq112x112 price * seconds) units so we simply wrap it after division by time elapsed
-            price0Average = FixedPoint.uq112x112(uint224((price0Cumulative - price0CumulativeLast) / timeElapsed));
-            price1Average = FixedPoint.uq112x112(uint224((price1Cumulative - price1CumulativeLast) / timeElapsed));
-
-            price0CumulativeLast = price0Cumulative;
-            price1CumulativeLast = price1Cumulative;
-            blockTimestampLast = blockTimestamp;
+            _update();
         }
     }
 
-    function capture() public view returns(uint224) {
-        IUniswapV2Pair _pair = IUniswapV2Pair(IUniswapV2Factory(Constants.PANCAKE_FACTORY).getPair(hunnyToken, Constants.WBNB));
-        if (_pair.token0() == hunnyToken) {
-            return price0Average.mul(1).decode144();
-        } else {
-            return price1Average.mul(1).decode144();
-        }
+    function _update() internal {
+        (uint price0Cumulative, uint price1Cumulative, uint32 blockTimestamp) =
+        UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+        uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired
+
+        // overflow is desired, casting never truncates
+        // cumulative price is in (uq112x112 price * seconds) units so we simply wrap it after division by time elapsed
+        price0Average = FixedPoint.uq112x112(uint224((price0Cumulative - price0CumulativeLast) / timeElapsed));
+        price1Average = FixedPoint.uq112x112(uint224((price1Cumulative - price1CumulativeLast) / timeElapsed));
+
+        price0CumulativeLast = price0Cumulative;
+        price1CumulativeLast = price1Cumulative;
+        blockTimestampLast = blockTimestamp;
     }
 
     // note this will always return 0 before update has been called successfully for the first time.
-    function consult(address token, uint amountIn) external view returns (uint amountOut) {
+    function consult(address token, uint amountIn) public view returns (uint amountOut) {
         if (token == token0) {
             amountOut = price0Average.mul(amountIn).decode144();
         } else {
             require(token == token1, 'HunnyOracle: INVALID_TOKEN');
             amountOut = price1Average.mul(amountIn).decode144();
+        }
+    }
+
+    function capture() public view returns(uint) {
+        uint consultAmount = consult(hunnyToken, 1e18);
+        if (consultAmount == 0) {
+            return BOOTSTRAP_HUNNY_PRICE;
+        } else {
+            return consultAmount;
         }
     }
 }
