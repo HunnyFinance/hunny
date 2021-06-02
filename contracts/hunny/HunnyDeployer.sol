@@ -6,7 +6,6 @@ import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
 
 import "./HunnyToken.sol";
-import "./HunnyPresale.sol";
 import "./HunnyOracle.sol";
 import "./legacy/HunnyMinter.sol";
 import "../Constants.sol";
@@ -17,6 +16,14 @@ import "../vaults/legacy/CakeVault.sol";
 import "../vaults/legacy/CakeFlipVault.sol";
 import "../interfaces/IPancakeRouter02.sol";
 
+interface Presale {
+    function totalBalance() external view returns(uint);
+    function flipToken() external view returns(address);
+    function initialize(address _token, address _masterChef, address _rewardToken) external;
+    function distributeTokens(uint _pid, uint _fromIndex, uint _toIndex) external;
+    function distributeTokensWhiteList(uint _pid) external;
+    function finalize() external;
+}
 
 // assume that the presale contract has been deployed
 // deploy following contract only when the presale ended
@@ -34,7 +41,7 @@ contract Deployer1 is Ownable {
         // deploy hunny token
         hunny = new HunnyToken();
         hunnyOracle = new HunnyOracle(address(hunny));
-        helper = new StrategyHelperV1(address(hunnyOracle));
+        helper = new StrategyHelperV1(address(hunny));
 
         // deploy HUNNY Pool
         hunnyPool = new HunnyPool(
@@ -62,6 +69,7 @@ contract Deployer1 is Ownable {
 
     function transferContractOwner(address deployer2) public onlyOwner {
         hunny.transferOwnership(deployer2);
+        hunny.transferOperator(deployer2);
         hunnyOracle.transferOwnership(deployer2);
         helper.transferOwnership(deployer2);
         hunnyPool.transferOwnership(deployer2);
@@ -75,11 +83,11 @@ contract Deployer2 is Ownable {
     using SafeBEP20 for IBEP20;
 
     Deployer1 public deployer1;
-    HunnyPresale public presale;
+    Presale public presale;
 
     constructor(address deployer1Address, address payable presaleAddress) public {
         deployer1 = Deployer1(deployer1Address);
-        presale = HunnyPresale(presaleAddress);
+        presale = Presale(presaleAddress);
     }
 
     // allow deployer2 receive BNB from presale contract
@@ -104,10 +112,22 @@ contract Deployer2 is Ownable {
 
         // set rewards token
         deployer1.hunnyPool().setRewardsToken(presale.flipToken());
+
+        // update anti-whale max value
+        // anti bots
+        deployer1.hunny().updateMaxTransferAmountRate(4);
     }
 
-    function step2_presaleDistributeTokens() public onlyOwner {
-        presale.distributeTokens(0);
+    function step2_1_presaleDistributeTokens(uint fromIndex, uint toIndex) public onlyOwner {
+        deployer1.hunny().updateMaxTransferAmountRate(10000);
+        presale.distributeTokens(0, fromIndex, toIndex);
+        deployer1.hunny().updateMaxTransferAmountRate(4);
+    }
+
+    function step2_2_presaleDistributeTokensWhiteList() public onlyOwner {
+        deployer1.hunny().updateMaxTransferAmountRate(10000);
+        presale.distributeTokensWhiteList(0);
+        deployer1.hunny().updateMaxTransferAmountRate(4);
     }
 
     function step3_presaleFinalize() public onlyOwner {
@@ -131,6 +151,7 @@ contract Deployer2 is Ownable {
     }
 
     function step4_setupLiquidityReward(uint256 bnbAmount) public onlyOwner {
+        deployer1.hunny().updateMaxTransferAmountRate(10000);
         IPancakeRouter02 router = IPancakeRouter02(Constants.PANCAKE_ROUTER);
 
         address token = address(deployer1.hunny());
@@ -153,11 +174,14 @@ contract Deployer2 is Ownable {
 
         // set reward distribution on HUNNY Hive Pool
         deployer1.hunnyPool().setRewardsDistribution(address(deployer1.hunnyMinter()));
+
+        deployer1.hunny().updateMaxTransferAmountRate(4);
     }
 
     function transferContractOwner(address newOwner) public onlyOwner {
-        presale.transferOwnership(newOwner);
+        Ownable(address(presale)).transferOwnership(newOwner);
 
+        deployer1.hunny().transferOperator(newOwner);
         deployer1.helper().transferOwnership(newOwner);
 
         deployer1.hunnyPool().transferOwnership(newOwner);
@@ -170,48 +194,5 @@ contract Deployer2 is Ownable {
     function emergencyTransfer() public payable onlyOwner {
         payable(owner()).transfer(address(this).balance);
         deployer1.hunny().transfer(owner(), deployer1.hunny().balanceOf(address(this)));
-    }
-}
-
-// make sure Deployer1 and Deployer2 work well
-// deployer3 deploy CAKE vault and FLIP to CAKE pools
-// external deployer address need to update token price feed on StrategyHelperV1 contract
-contract Deployer3 is Ownable {
-    Deployer2 public deployer2;
-
-    CakeVault public cakeVault;
-    CakeFlipVault public flipCakeBnb;
-    CakeFlipVault public flipBusdBnb;
-    CakeFlipVault public flipBusdUsdt;
-
-    constructor(address payable deployer2Address) public {
-        deployer2 = Deployer2(deployer2Address);
-
-        cakeVault = new CakeVault(Constants.CAKE, Constants.PANCAKE_CHEF);
-
-        // deploy CAKE-BNB vault
-        flipCakeBnb = new CakeFlipVault(
-            Constants.PANCAKE_CAKE_BNB_PID, // pancake master chef pid
-            Constants.CAKE,
-            Constants.PANCAKE_CHEF,
-            address(cakeVault),
-            address(deployer2.deployer1().hunnyMinter())
-        );
-
-        // deploy BUSD-BNB vault
-        flipCakeBnb = new CakeFlipVault(
-            Constants.PANCAKE_BUSD_BNB_PID, // pancake master chef pid
-            Constants.CAKE,
-            Constants.PANCAKE_CHEF,
-            address(cakeVault),
-            address(deployer2.deployer1().hunnyMinter())
-        );
-    }
-
-    function transferContractOwner(address newOwner) public onlyOwner {
-        cakeVault.transferOwnership(newOwner);
-        flipCakeBnb.transferOwnership(newOwner);
-        flipBusdBnb.transferOwnership(newOwner);
-//        flipBusdUsdt.transferOwnership(owner());
     }
 }

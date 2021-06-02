@@ -221,8 +221,9 @@ contract CakeFlipVault is IStrategyLegacy, RewardsDistributionRecipient, Reentra
         uint256 reward = rewards[msg.sender];
         if (reward > 0) {
             rewards[msg.sender] = 0;
+            uint before = IBEP20(CAKE).balanceOf(address(this));
             rewardsToken.withdraw(reward);
-            uint cakeBalance = IBEP20(CAKE).balanceOf(address(this));
+            uint cakeBalance = IBEP20(CAKE).balanceOf(address(this)).sub(before);
 
             if (address(minter) != address(0) && minter.isMinter(address(this))) {
                 uint performanceFee = minter.performanceFee(cakeBalance);

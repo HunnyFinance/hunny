@@ -21,7 +21,7 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
     address public dev = Constants.HUNNY_DEPLOYER;
     IBEP20 private WBNB = IBEP20(Constants.WBNB);
 
-    uint public override WITHDRAWAL_FEE_FREE_PERIOD = 3 days;
+    uint public override WITHDRAWAL_FEE_FREE_PERIOD = 2 days;
     uint public override WITHDRAWAL_FEE = 50;
     uint public constant FEE_MAX = 10000;
 

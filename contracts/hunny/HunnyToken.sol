@@ -26,11 +26,75 @@ pragma solidity ^0.6.12;
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 */
 
-import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
+import "../library/bep20/BEP20Virtual.sol";
 
 
 // HunnyToken with Governance.
-contract HunnyToken is BEP20('Hunny Token', 'HUNNY') {
+contract HunnyToken is BEP20Virtual('Hunny Token', 'HUNNY') {
+    uint16 public maxTransferAmountRate = 10000; // 100%
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
+    mapping(address => bool) private _excludedFromAntiWhale;
+    address private _operator;
+
+    event OperatorTransferred(address indexed previousOperator, address indexed newOperator);
+    event MaxTransferAmountRateUpdated(address indexed operator, uint256 previousRate, uint256 newRate);
+
+    modifier onlyOperator() {
+        require(_operator == msg.sender, "operator: caller is not the operator");
+        _;
+    }
+
+    modifier antiWhale(address sender, address recipient, uint256 amount) {
+        if (maxTransferAmount() > 0) {
+            if (
+                _excludedFromAntiWhale[sender] == false
+                && _excludedFromAntiWhale[recipient] == false
+            ) {
+                require(amount <= maxTransferAmount(), "HUNNY::antiWhale: Transfer amount exceeds the maxTransferAmount");
+            }
+        }
+        _;
+    }
+
+    constructor() public {
+        _operator = msg.sender;
+
+        _excludedFromAntiWhale[msg.sender] = true;
+        _excludedFromAntiWhale[address(0)] = true;
+        _excludedFromAntiWhale[address(this)] = true;
+        _excludedFromAntiWhale[BURN_ADDRESS] = true;
+    }
+
+    function _transfer(address sender, address recipient, uint256 amount) internal override antiWhale(sender, recipient, amount) {
+        super._transfer(sender, recipient, amount);
+    }
+
+    function maxTransferAmount() public view returns (uint256) {
+        return totalSupply().mul(maxTransferAmountRate).div(10000);
+    }
+
+    function isExcludedFromAntiWhale(address _account) public view returns (bool) {
+        return _excludedFromAntiWhale[_account];
+    }
+
+    function updateMaxTransferAmountRate(uint16 _maxTransferAmountRate) public onlyOperator {
+        require(_maxTransferAmountRate <= 10000, "HUNNY::updateMaxTransferAmountRate: Max transfer amount rate must not exceed the maximum rate.");
+        emit MaxTransferAmountRateUpdated(msg.sender, maxTransferAmountRate, _maxTransferAmountRate);
+        maxTransferAmountRate = _maxTransferAmountRate;
+    }
+
+    function setExcludedFromAntiWhale(address _account, bool _excluded) public onlyOperator {
+        _excludedFromAntiWhale[_account] = _excluded;
+    }
+
+    function transferOperator(address newOperator) public onlyOperator {
+        require(newOperator != address(0), "HUNNY::transferOperator: new operator is the zero address");
+        emit OperatorTransferred(_operator, newOperator);
+        _operator = newOperator;
+        _excludedFromAntiWhale[newOperator] = true;
+    }
+
     // @dev Creates `_amount` token to `_to`. Must only be called by the owner (MasterChef).
     function mint(address _to, uint256 _amount) public onlyOwner {
         _mint(_to, _amount);

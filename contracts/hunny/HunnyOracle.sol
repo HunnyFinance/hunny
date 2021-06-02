@@ -6,6 +6,7 @@ import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
 import "../Constants.sol";
+import "../library/Whitelist.sol";
 import "../library/uniswap/FixedPoint.sol";
 import "../library/uniswap/UniswapV2Library.sol";
 import "../library/uniswap/UniswapV2OracleLibrary.sol";
@@ -13,7 +14,7 @@ import "../library/uniswap/UniswapV2OracleLibrary.sol";
 
 // fixed window oracle that recomputes the average price for the entire period once every period
 // note that the price average is only guaranteed to be over at least 1 period, but may be over a longer period
-contract HunnyOracle is Ownable {
+contract HunnyOracle is Whitelist {
     using FixedPoint for *;
 
     uint public constant PERIOD = 10 minutes;
@@ -34,6 +35,8 @@ contract HunnyOracle is Ownable {
 
     constructor(address hunny) public {
         hunnyToken = hunny;
+
+        setWhitelist(msg.sender, true);
     }
 
     function initialize() internal {
@@ -54,7 +57,7 @@ contract HunnyOracle is Ownable {
         initialized = true;
     }
 
-    function update() public onlyOwner {
+    function update() public onlyWhitelisted {
         if (!initialized) {
             initialize();
         }

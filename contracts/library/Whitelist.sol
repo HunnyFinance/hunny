@@ -46,13 +46,13 @@ contract Whitelist is Ownable {
         return _whitelist[_address];
     }
 
-    function setWhitelist(address _address, bool _on) external onlyOwner {
+    function setWhitelist(address _address, bool _on) public onlyOwner {
         _whitelist[_address] = _on;
 
         emit Whitelisted(_address, _on);
     }
 
-    function disableWhitelist(bool disable) external onlyOwner {
+    function disableWhitelist(bool disable) public onlyOwner {
         _disable = disable;
         if (disable) {
             emit DisableWhitelist();
