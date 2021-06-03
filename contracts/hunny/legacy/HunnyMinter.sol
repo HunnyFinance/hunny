@@ -140,7 +140,7 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         uint feeSum = _performanceFee.add(_withdrawalFee);
         IBEP20(flip).safeTransferFrom(msg.sender, address(this), feeSum);
 
-        uint hunnyBNBAmount = tokenToHunnyBNB(flip, IBEP20(flip).balanceOf(address(this)));
+        uint hunnyBNBAmount = tokenToHunnyBNB(flip, feeSum);
         address flipToken = hunnyBNBFlipToken();
         IBEP20(flipToken).safeTransfer(hunnyPool, hunnyBNBAmount);
         IStakingRewards(hunnyPool).notifyRewardAmount(hunnyBNBAmount);

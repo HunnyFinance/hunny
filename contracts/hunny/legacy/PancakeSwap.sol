@@ -39,10 +39,16 @@ contract PancakeSwap {
     }
 
     function _cakeToHunnyBNBFlip(uint amount) private returns(uint flipAmount) {
+        uint256 hunnyBefore = IBEP20(_hunny).balanceOf(address(this));
+        uint256 wbnbBefore = IBEP20(_wbnb).balanceOf(address(this));
+
         swapToken(cake, amount.div(2), _hunny);
         swapToken(cake, amount.sub(amount.div(2)), _wbnb);
 
-        flipAmount = generateFlipToken();
+        uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
+        uint256 wbnbBalance = IBEP20(_hunny).balanceOf(address(this)).sub(wbnbBefore);
+
+        flipAmount = generateFlipToken(hunnyBalance, wbnbBalance);
     }
 
     function _flipToHunnyBNBFlip(address token, uint amount) private returns(uint flipAmount) {
@@ -51,17 +57,35 @@ contract PancakeSwap {
         address _token1 = pair.token1();
         IBEP20(token).safeApprove(address(ROUTER), 0);
         IBEP20(token).safeApprove(address(ROUTER), amount);
+
+        // snapshot balance before remove liquidity
+        uint256 _token0BeforeRemove = IBEP20(_token0).balanceOf(address(this));
+        uint256 _token1BeforeRemove = IBEP20(_token1).balanceOf(address(this));
+
         ROUTER.removeLiquidity(_token0, _token1, amount, 0, 0, address(this), block.timestamp);
         if (_token0 == _wbnb) {
-            swapToken(_token1, IBEP20(_token1).balanceOf(address(this)), _hunny);
-            flipAmount = generateFlipToken();
+            uint256 hunnyBefore = IBEP20(_hunny).balanceOf(address(this));
+            swapToken(_token1, IBEP20(_token1).balanceOf(address(this)).sub(_token1BeforeRemove), _hunny);
+            uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
+
+            flipAmount = generateFlipToken(hunnyBalance, IBEP20(_wbnb).balanceOf(address(this)).sub(_token0BeforeRemove));
         } else if (_token1 == _wbnb) {
-            swapToken(_token0, IBEP20(_token0).balanceOf(address(this)), _hunny);
-            flipAmount = generateFlipToken();
+            uint256 hunnyBefore = IBEP20(_hunny).balanceOf(address(this));
+            swapToken(_token0, IBEP20(_token0).balanceOf(address(this)).sub(_token0BeforeRemove), _hunny);
+            uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
+
+            flipAmount = generateFlipToken(hunnyBalance, IBEP20(_wbnb).balanceOf(address(this)).sub(_token1BeforeRemove));
         } else {
-            swapToken(_token0, IBEP20(_token0).balanceOf(address(this)), _hunny);
-            swapToken(_token1, IBEP20(_token1).balanceOf(address(this)), _wbnb);
-            flipAmount = generateFlipToken();
+            uint256 hunnyBefore = IBEP20(_hunny).balanceOf(address(this));
+            uint256 wbnbBefore = IBEP20(_wbnb).balanceOf(address(this));
+
+            swapToken(_token0, IBEP20(_token0).balanceOf(address(this)).sub(_token0BeforeRemove), _hunny);
+            swapToken(_token1, IBEP20(_token1).balanceOf(address(this)).sub(_token1BeforeRemove), _wbnb);
+
+            uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
+            uint256 wbnbBalance = IBEP20(_hunny).balanceOf(address(this)).sub(wbnbBefore);
+
+            flipAmount = generateFlipToken(hunnyBalance, wbnbBalance);
         }
     }
 
@@ -85,10 +109,7 @@ contract PancakeSwap {
         ROUTER.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp);
     }
 
-    function generateFlipToken() private returns(uint liquidity) {
-        uint amountADesired = IBEP20(_hunny).balanceOf(address(this));
-        uint amountBDesired = IBEP20(_wbnb).balanceOf(address(this));
-
+    function generateFlipToken(uint256 amountADesired, uint256 amountBDesired) private returns(uint liquidity) {
         IBEP20(_hunny).safeApprove(address(ROUTER), 0);
         IBEP20(_hunny).safeApprove(address(ROUTER), amountADesired);
         IBEP20(_wbnb).safeApprove(address(ROUTER), 0);
