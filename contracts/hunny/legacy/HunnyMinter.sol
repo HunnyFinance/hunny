@@ -7,7 +7,6 @@ import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 
 import "./PancakeSwap.sol";
-import "../../Constants.sol";
 import "../../interfaces/IHunnyMinter.sol";
 import "../../interfaces/IHunnyOracle.sol";
 import "../../interfaces/legacy/IStakingRewards.sol";
@@ -17,9 +16,10 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
     using SafeMath for uint;
     using SafeBEP20 for IBEP20;
 
-    BEP20 private hunny;
-    address public dev = Constants.HUNNY_DEPLOYER;
-    IBEP20 private WBNB = IBEP20(Constants.WBNB);
+    IBEP20 private HUNNY = IBEP20(0x565b72163f17849832A692A3c5928cc502f46D69);
+    IBEP20 private WBNB = IBEP20(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
+
+    address public dev = address(0xe5F7E3DD9A5612EcCb228392F47b7Ddba8cE4F1a);
 
     uint public override WITHDRAWAL_FEE_FREE_PERIOD = 2 days;
     uint public override WITHDRAWAL_FEE = 50;
@@ -27,15 +27,16 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
 
     uint public PERFORMANCE_FEE = 3000; // 30%
 
-    uint public override hunnyPerProfitBNB;
-    uint public override hunnyPerBlockLottery;
+    uint public override hunnyPerProfitBNB = 3200e18;   // 1 BNB earned, mint 3200 HUNNY
+    uint public override hunnyPerBlockLottery = 12e18;  // 12 HUNNY per block for lottery pool
+    uint public hunnyPerHunnyBNBFlip = 150e18;          // 1 HUNNY-BNB, earn 150 HUNNY / 365 days
     uint public lastLotteryMintBlock;
-    uint public hunnyPerHunnyBNBFlip;
 
-    address public hunnyPool;
-    address public lotteryPool;
-    IHunnyOracle public oracle;
-    IStrategyHelper public helper;
+    address public HUNNY_POOL = address(0x389D2719a9Bcc29583Db89FD9454ADe9e57CD18d);
+    address public LOTTERY_POOL = address(0);
+
+    IHunnyOracle public ORACLE;
+    IStrategyHelper public HELPER;
 
     mapping (address => bool) private _minters;
 
@@ -44,22 +45,23 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         _;
     }
 
-    constructor(address _hunny, address _hunnyPool, address _lotteryPool, address _oracle, address _helper) PancakeSwap(_hunny) public {
-        hunny = BEP20(_hunny);
-        hunnyPool = _hunnyPool;
-        lotteryPool = _lotteryPool;
-        oracle = IHunnyOracle(_oracle);
-        helper = IStrategyHelper(_helper);
+    constructor() public {
+        // vaults and pools
+        _minters[address(0x434Af79fd4E96B5985719e3F5f766619DC185EAe)] = true; // HUNNY-BNB pool
+        _minters[address(0x12180BB36DdBce325b3be0c087d61Fce39b8f5A4)] = true; // CAKE-BNB vault
+        _minters[address(0xD87F461a52E2eB9E57463B9A4E0e97c7026A5DCB)] = true; // BUSD-BNB vault
+        _minters[address(0x31972E7bfAaeE72F2EB3a7F68Ff71D0C61162e81)] = true; // USDT-BNB vault
+        _minters[address(0x3B34AA6825fA731c69C63d4925d7a2E3F6c7f13C)] = true; // DOGE-BNB vault
+        _minters[address(0xb7D43F1beD47eCba4Ad69CcD56dde4474B599965)] = true; // CAKE vault
 
-        hunnyPerProfitBNB = Constants.HUNNY_PER_PROFIT_BNB;
-        hunnyPerBlockLottery = Constants.HUNNY_PER_BLOCK_LOTTERY;
-        lastLotteryMintBlock = block.number;
-        hunnyPerHunnyBNBFlip = Constants.HUNNY_PER_HUNNY_BNB_FLIP;
-        hunny.approve(hunnyPool, uint(~0));
+        ORACLE = IHunnyOracle(0x9e377Bc8DaB0C30CFBa5e94cE52be1989a644e28);
+        HELPER = IStrategyHelper(0x486B662A191E29cF767862ACE492c89A6c834fB4);
+
+        HUNNY.approve(HUNNY_POOL, uint256(-1));
     }
 
     function transferHunnyOwner(address _owner) external onlyOwner {
-        Ownable(address(hunny)).transferOwnership(_owner);
+        Ownable(address(HUNNY)).transferOwnership(_owner);
     }
 
     function setWithdrawalFee(uint _fee) external onlyOwner {
@@ -98,16 +100,16 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
 
     function setHelper(IStrategyHelper _helper) external onlyOwner {
         require(address(_helper) != address(0), "zero address");
-        helper = _helper;
+        HELPER = _helper;
     }
 
     function setOracle(IHunnyOracle _oracle) external onlyOwner {
         require(address(_oracle) != address(0), "zero address");
-        oracle = _oracle;
+        ORACLE = _oracle;
     }
 
     function isMinter(address account) override view public returns(bool) {
-        if (hunny.getOwner() != address(this)) {
+        if (HUNNY.getOwner() != address(this)) {
             return false;
         }
 
@@ -142,16 +144,17 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
 
         uint hunnyBNBAmount = tokenToHunnyBNB(flip, feeSum);
         address flipToken = hunnyBNBFlipToken();
-        IBEP20(flipToken).safeTransfer(hunnyPool, hunnyBNBAmount);
-        IStakingRewards(hunnyPool).notifyRewardAmount(hunnyBNBAmount);
+        IBEP20(flipToken).safeTransfer(HUNNY_POOL, hunnyBNBAmount);
+        IStakingRewards(HUNNY_POOL).notifyRewardAmount(hunnyBNBAmount);
 
-        uint contribution = helper.tvlInBNB(flipToken, hunnyBNBAmount).mul(_performanceFee).div(feeSum);
+        // avoid hunnyBNBAmount manipulation
+        uint contribution = HELPER.tvlInBNB(flip, _performanceFee);
         uint mintHunny = amountHunnyToMint(contribution);
         mint(mintHunny, to);
 
         // addition step
         // update oracle price
-        oracle.update();
+        ORACLE.update();
     }
 
     function mintForHunnyBNB(uint amount, uint duration, address to) override external onlyMinter {
@@ -161,12 +164,12 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
     }
 
     function mint(uint amount, address to) private {
-        hunny.mint(amount);
-        hunny.transfer(to, amount);
+        BEP20(address(HUNNY)).mint(amount);
+        HUNNY.transfer(to, amount);
 
         uint hunnyForDev = amount.mul(15).div(100);
-        hunny.mint(hunnyForDev);
-        IStakingRewards(hunnyPool).stakeTo(hunnyForDev, dev);
+        BEP20(address(HUNNY)).mint(hunnyForDev);
+        IStakingRewards(HUNNY_POOL).stakeTo(hunnyForDev, dev);
 
         // mint for lottery pool
         mintForLottery();
@@ -175,10 +178,10 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
     // only after when lottery pool address was set
     // token calculated from the block when dev set lottery pool address only
     function mintForLottery() private {
-        if (lotteryPool != address(0)) {
+        if (LOTTERY_POOL != address(0)) {
             uint amountHunny = block.number.sub(lastLotteryMintBlock).mul(hunnyPerBlockLottery);
-            hunny.mint(amountHunny);
-            hunny.transfer(lotteryPool, amountHunny);
+            BEP20(address(HUNNY)).mint(amountHunny);
+            HUNNY.transfer(LOTTERY_POOL, amountHunny);
         }
 
         lastLotteryMintBlock = block.number;
