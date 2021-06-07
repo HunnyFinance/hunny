@@ -5,7 +5,6 @@ import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/IBEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
 
-import "../../Constants.sol";
 import "../../interfaces/IPancakeRouter02.sol";
 import "../../interfaces/IPancakePair.sol";
 import "../../interfaces/IPancakeFactory.sol";
@@ -14,16 +13,15 @@ contract PancakeSwap {
     using SafeMath for uint;
     using SafeBEP20 for IBEP20;
 
-    IPancakeRouter02 private ROUTER = IPancakeRouter02(Constants.PANCAKE_ROUTER);
-    IPancakeFactory private factory = IPancakeFactory(Constants.PANCAKE_FACTORY);
+    IPancakeRouter02 private constant ROUTER = IPancakeRouter02(address(0x10ED43C718714eb63d5aA57B78B54704E256024E));
+    IPancakeFactory private constant factory = IPancakeFactory(address(0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73));
 
-    address internal cake = Constants.CAKE;
-    address private _hunny;
-    address private _wbnb = Constants.WBNB;
+    IPancakeRouter02 private constant APE_ROUTER = IPancakeRouter02(address(0xC0788A3aD43d79aa53B09c2EaCc313A787d1d607));
 
-    constructor(address _hunnyAddress) public {
-        _hunny = _hunnyAddress;
-    }
+    address internal constant cake = address(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
+    address internal constant banana = address(0x603c7f932ED1fc6575303D8Fb018fDCBb0f39a95);
+    address private constant _hunny = address(0x565b72163f17849832A692A3c5928cc502f46D69);
+    address private constant _wbnb = address(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
 
     function hunnyBNBFlipToken() internal view returns(address) {
         return factory.getPair(_hunny, _wbnb);
@@ -32,6 +30,8 @@ contract PancakeSwap {
     function tokenToHunnyBNB(address token, uint amount) internal returns(uint flipAmount) {
         if (token == cake) {
             flipAmount = _cakeToHunnyBNBFlip(amount);
+        } else if (token == banana) {
+            flipAmount = _bananaToHunnyBNBFlip(amount);
         } else {
             // flip
             flipAmount = _flipToHunnyBNBFlip(token, amount);
@@ -46,7 +46,26 @@ contract PancakeSwap {
         swapToken(cake, amount.sub(amount.div(2)), _wbnb);
 
         uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
-        uint256 wbnbBalance = IBEP20(_hunny).balanceOf(address(this)).sub(wbnbBefore);
+        uint256 wbnbBalance = IBEP20(_wbnb).balanceOf(address(this)).sub(wbnbBefore);
+
+        flipAmount = generateFlipToken(hunnyBalance, wbnbBalance);
+    }
+
+    // 1. swap all BANANA -> WBNB from ApeSwap
+    // 2. swap 1/2 WBNB -> HUNNY from PancakeSwap
+    // 3. add WBNB/HUNNY on PancakeSwap
+    function _bananaToHunnyBNBFlip(uint amount) private returns(uint flipAmount) {
+        uint256 hunnyBefore = IBEP20(_hunny).balanceOf(address(this));
+        uint256 wbnbBefore = IBEP20(_wbnb).balanceOf(address(this));
+
+        swapTokenOnApe(banana, amount, _wbnb);
+
+        uint256 wbnbBalanceAfterSwapOnApe = IBEP20(_wbnb).balanceOf(address(this)).sub(wbnbBefore);
+        uint256 amountToHunny = wbnbBalanceAfterSwapOnApe.div(2);
+        swapToken(_wbnb, amountToHunny, _hunny);
+
+        uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
+        uint256 wbnbBalance = wbnbBalanceAfterSwapOnApe.sub(amountToHunny);
 
         flipAmount = generateFlipToken(hunnyBalance, wbnbBalance);
     }
@@ -83,7 +102,7 @@ contract PancakeSwap {
             swapToken(_token1, IBEP20(_token1).balanceOf(address(this)).sub(_token1BeforeRemove), _wbnb);
 
             uint256 hunnyBalance = IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore);
-            uint256 wbnbBalance = IBEP20(_hunny).balanceOf(address(this)).sub(wbnbBefore);
+            uint256 wbnbBalance = IBEP20(_wbnb).balanceOf(address(this)).sub(wbnbBefore);
 
             flipAmount = generateFlipToken(hunnyBalance, wbnbBalance);
         }
@@ -107,6 +126,26 @@ contract PancakeSwap {
         IBEP20(_from).safeApprove(address(ROUTER), 0);
         IBEP20(_from).safeApprove(address(ROUTER), _amount);
         ROUTER.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp);
+    }
+
+    function swapTokenOnApe(address _from, uint _amount, address _to) private {
+        if (_from == _to) return;
+
+        address[] memory path;
+        if (_from == _wbnb || _to == _wbnb) {
+            path = new address[](2);
+            path[0] = _from;
+            path[1] = _to;
+        } else {
+            path = new address[](3);
+            path[0] = _from;
+            path[1] = _wbnb;
+            path[2] = _to;
+        }
+
+        IBEP20(_from).safeApprove(address(APE_ROUTER), 0);
+        IBEP20(_from).safeApprove(address(APE_ROUTER), _amount);
+        APE_ROUTER.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp);
     }
 
     function generateFlipToken(uint256 amountADesired, uint256 amountBDesired) private returns(uint liquidity) {

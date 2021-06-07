@@ -4,8 +4,8 @@ pragma solidity ^0.6.12;
 import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/IBEP20.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-import "../../Constants.sol";
 import "../../library/HomoraMath.sol";
 import "../../interfaces/IPancakeFactory.sol";
 import "../../interfaces/IPancakePair.sol";
@@ -16,36 +16,45 @@ import "../../interfaces/AggregatorV3Interface.sol";
 
 // no storage
 // There are only calculations for apy, tvl, etc.
-contract StrategyHelperV1 is Ownable {
+// integrate with Hunny Oracle V2
+contract StrategyHelperV1 is OwnableUpgradeable {
     using SafeMath for uint;
-    IBEP20 private WBNB = IBEP20(Constants.WBNB);
-    IBEP20 private CAKE = IBEP20(Constants.CAKE);
-    IBEP20 private BUSD = IBEP20(Constants.BUSD);
+    address private constant WBNB   = address(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
+    address private constant CAKE   = address(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
+    address private constant BUSD   = address(0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56);
+    address private constant BANANA = address(0x603c7f932ED1fc6575303D8Fb018fDCBb0f39a95);
+    address private constant HUNNY  = address(0x565b72163f17849832A692A3c5928cc502f46D69);
 
-    IBEP20 public hunny;
+    IMasterChef private constant master = IMasterChef(0x73feaa1eE314F8c655E354234017bE2193C9E24E);
+    IPancakeFactory private constant factory = IPancakeFactory(0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73);
+
     IHunnyOracle public oracle;
-    IMasterChef private master = IMasterChef(Constants.PANCAKE_CHEF);
-    IPancakeFactory private factory = IPancakeFactory(Constants.PANCAKE_FACTORY);
+    mapping(address => address) public tokenFeeds;
 
-    mapping(address => address) private tokenFeeds;
+    function initialize() external initializer {
+        __Ownable_init();
 
-    constructor(address _hunny) public {
-        hunny = IBEP20(_hunny);
+        // auto add ChainLink price feeds
+        setTokenFeed(WBNB, address(0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE));
+        setTokenFeed(CAKE, address(0xB6064eD41d4f67e353768aA239cA86f4F73665a1));
     }
 
     // get hunny price to in BNB
     function tokenPriceInBNB(address _token) public view returns(uint) {
-        if (_token == address(CAKE)) {
+        if (_token == CAKE) {
             return  cakePriceInBNB();
-        } else if (_token == address(hunny)) {
-            return oracle.capture();
         } else {
-            return unsafeTokenPriceInBNB(_token);
+            uint priceInBNB = oracle.capture(_token);
+            if (priceInBNB != 0) {
+                return priceInBNB;
+            } else {
+                return unsafeTokenPriceInBNB(_token);
+            }
         }
     }
 
     function unsafeTokenPriceInBNB(address _token) private view returns(uint) {
-        address pair = factory.getPair(_token, address(WBNB));
+        address pair = factory.getPair(_token, WBNB);
         uint decimal = uint(BEP20(_token).decimals());
 
         (uint reserve0, uint reserve1, ) = IPancakePair(pair).getReserves();
@@ -59,7 +68,7 @@ contract StrategyHelperV1 is Ownable {
     }
 
     function cakePriceInUSD() view public returns(uint) {
-        (, int price, , ,) = AggregatorV3Interface(tokenFeeds[address(CAKE)]).latestRoundData();
+        (, int price, , ,) = AggregatorV3Interface(tokenFeeds[CAKE]).latestRoundData();
         return uint(price).mul(1e10);
     }
 
@@ -68,7 +77,7 @@ contract StrategyHelperV1 is Ownable {
     }
 
     function bnbPriceInUSD() view public returns(uint) {
-        (, int price, , ,) = AggregatorV3Interface(tokenFeeds[address(WBNB)]).latestRoundData();
+        (, int price, , ,) = AggregatorV3Interface(tokenFeeds[WBNB]).latestRoundData();
         return uint(price).mul(1e10);
     }
 
@@ -109,50 +118,67 @@ contract StrategyHelperV1 is Ownable {
     }
 
     function tvl(address _flip, uint amount) public view returns (uint) {
-        if (_flip == address(CAKE)) {
-            return cakePriceInBNB().mul(bnbPriceInUSD()).mul(amount).div(1e36);
+        if (_flip == CAKE) {
+            return cakePriceInUSD().mul(amount).div(1e18);
         }
+
+        if (_flip == HUNNY) {
+            return tokenPriceInBNB(HUNNY).mul(bnbPriceInUSD()).mul(amount).div(1e36);
+        }
+
+        if (_flip == BANANA) {
+            return tokenPriceInBNB(BANANA).mul(bnbPriceInUSD()).mul(amount).div(1e36);
+        }
+
         address _token0 = IPancakePair(_flip).token0();
         address _token1 = IPancakePair(_flip).token1();
 
-        // using hunny price from the oracle
-        if (_token0 == address(hunny) || _token1 == address(hunny)) {
-            uint hunnyBalance = hunny.balanceOf(address(_flip)).mul(amount).div(IBEP20(_flip).totalSupply());
-            uint priceInBNB = tokenPriceInBNB(address(hunny));
-            uint price = priceInBNB.mul(bnbPriceInUSD()).div(1e18);
-            return hunnyBalance.mul(price).div(1e18).mul(2);
+        // calculate tvl of WBNB
+        if (_token0 == WBNB || _token1 == WBNB) {
+            uint bnb;
+            (uint256 reserve0, uint256 reserve1,) = IPancakePair(_flip).getReserves();
+            if (_token0 == WBNB) {
+                bnb = reserve0.mul(amount).div(IBEP20(_flip).totalSupply());
+            } else {
+                bnb = reserve1.mul(amount).div(IBEP20(_flip).totalSupply());
+            }
+            return bnb.mul(bnbPriceInUSD()).div(1e18).mul(2);
         }
 
-        if (_token0 == address(WBNB) || _token1 == address(WBNB)) {
-            uint bnb = WBNB.balanceOf(address(_flip)).mul(amount).div(IBEP20(_flip).totalSupply());
-            uint price = bnbPriceInUSD();
-            return bnb.mul(price).div(1e18).mul(2);
-        }
-
+        // it not safe, because token price in BNB not got from any oracle
         uint balanceToken0 = IBEP20(_token0).balanceOf(_flip);
         uint price = tokenPriceInBNB(_token0);
         return balanceToken0.mul(price).div(1e18).mul(bnbPriceInUSD()).div(1e18).mul(2);
     }
 
     function tvlInBNB(address _flip, uint amount) public view returns (uint) {
-        if (_flip == address(CAKE)) {
+        if (_flip == CAKE) {
             return cakePriceInBNB().mul(amount).div(1e18);
         }
+
+        if (_flip == HUNNY) {
+            return tokenPriceInBNB(HUNNY).mul(amount).div(1e18);
+        }
+
+        if (_flip == BANANA) {
+            return tokenPriceInBNB(BANANA).mul(amount).div(1e18);
+        }
+
         address _token0 = IPancakePair(_flip).token0();
         address _token1 = IPancakePair(_flip).token1();
 
-        // using hunny price from the oracle
-        if (_token0 == address(hunny) || _token1 == address(hunny)) {
-            uint hunnyBalance = hunny.balanceOf(address(_flip)).mul(amount).div(IBEP20(_flip).totalSupply());
-            uint priceInBNB = tokenPriceInBNB(address(hunny));
-            return hunnyBalance.mul(priceInBNB).div(1e18).mul(2);
-        }
-
-        if (_token0 == address(WBNB) || _token1 == address(WBNB)) {
-            uint bnb = WBNB.balanceOf(address(_flip)).mul(amount).div(IBEP20(_flip).totalSupply());
+        if (_token0 == WBNB || _token1 == WBNB) {
+            uint bnb;
+            (uint256 reserve0, uint256 reserve1,) = IPancakePair(_flip).getReserves();
+            if (_token0 == WBNB) {
+                bnb = reserve0.mul(amount).div(IBEP20(_flip).totalSupply());
+            } else {
+                bnb = reserve1.mul(amount).div(IBEP20(_flip).totalSupply());
+            }
             return bnb.mul(2);
         }
 
+        // it is not safe, need to implement oracle
         uint balanceToken0 = IBEP20(_token0).balanceOf(_flip);
         uint price = tokenPriceInBNB(_token0);
         return balanceToken0.mul(price).div(1e18).mul(2);

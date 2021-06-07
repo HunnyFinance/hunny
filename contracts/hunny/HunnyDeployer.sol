@@ -40,8 +40,8 @@ contract Deployer1 is Ownable {
     constructor(address presaleAddress) public {
         // deploy hunny token
         hunny = new HunnyToken();
-        hunnyOracle = new HunnyOracle(address(hunny));
-        helper = new StrategyHelperV1(address(hunny));
+        hunnyOracle = new HunnyOracle();
+        helper = new StrategyHelperV1();
 
         // deploy HUNNY Pool
         hunnyPool = new HunnyPool(
@@ -58,13 +58,7 @@ contract Deployer1 is Ownable {
         );
 
         // deploy hunny minter
-        hunnyMinter = new HunnyMinter(
-            address(hunny),
-            address(hunnyPool),
-            address(Constants.HUNNY_LOTTERY),
-            address(hunnyOracle),
-            address(helper)
-        );
+        hunnyMinter = new HunnyMinter();
     }
 
     function transferContractOwner(address deployer2) public onlyOwner {
