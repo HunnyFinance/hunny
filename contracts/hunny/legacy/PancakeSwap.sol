@@ -4,12 +4,13 @@ pragma solidity ^0.6.12;
 import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/IBEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import "../../interfaces/IPancakeRouter02.sol";
 import "../../interfaces/IPancakePair.sol";
 import "../../interfaces/IPancakeFactory.sol";
 
-contract PancakeSwap {
+abstract contract PancakeSwap is OwnableUpgradeable {
     using SafeMath for uint;
     using SafeBEP20 for IBEP20;
 
@@ -20,8 +21,13 @@ contract PancakeSwap {
 
     address internal constant cake = address(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
     address internal constant banana = address(0x603c7f932ED1fc6575303D8Fb018fDCBb0f39a95);
+    address internal constant banana_bnb = address(0xF65C1C0478eFDe3c19b49EcBE7ACc57BB6B1D713);
     address private constant _hunny = address(0x565b72163f17849832A692A3c5928cc502f46D69);
     address private constant _wbnb = address(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
+
+    function __PancakeSwap_init() internal initializer {
+        __Ownable_init();
+    }
 
     function hunnyBNBFlipToken() internal view returns(address) {
         return factory.getPair(_hunny, _wbnb);
@@ -34,7 +40,11 @@ contract PancakeSwap {
             flipAmount = _bananaToHunnyBNBFlip(amount);
         } else {
             // flip
-            flipAmount = _flipToHunnyBNBFlip(token, amount);
+            if (token == banana_bnb) {
+                flipAmount = _bananaBNBFlipToHunnyBNBFlip(token, amount);
+            } else {
+                flipAmount = _flipToHunnyBNBFlip(token, amount);
+            }
         }
     }
 
@@ -106,6 +116,44 @@ contract PancakeSwap {
 
             flipAmount = generateFlipToken(hunnyBalance, wbnbBalance);
         }
+    }
+
+    // convert BANANA-BNB FLIP to WBNB on ApeSwap
+    // convert 1/2 WBNB to HUNNY on PancakeSwap
+    // add liquidity HUNNY+BNB on PancakeSwap
+    function _bananaBNBFlipToHunnyBNBFlip(address token, uint amount) private returns(uint flipAmount) {
+        IPancakePair pair = IPancakePair(token);
+        address _token0 = pair.token0();
+        address _token1 = pair.token1();
+        IBEP20(token).safeApprove(address(APE_ROUTER), 0);
+        IBEP20(token).safeApprove(address(APE_ROUTER), amount);
+
+        // snapshot balance before remove liquidity
+        uint256 _token0BeforeRemove = IBEP20(_token0).balanceOf(address(this));
+        uint256 _token1BeforeRemove = IBEP20(_token1).balanceOf(address(this));
+
+        APE_ROUTER.removeLiquidity(_token0, _token1, amount, 0, 0, address(this), block.timestamp);
+
+        // swap all BANANA to WBNB
+        uint256 bananaBalance;
+        uint256 wbnbBalance;
+        if (_token0 == _wbnb) {
+            bananaBalance = IBEP20(banana).balanceOf(address(this)).sub(_token1BeforeRemove);
+            swapTokenOnApe(banana, bananaBalance, _wbnb);
+            wbnbBalance = IBEP20(_wbnb).balanceOf(address(this)).sub(_token0BeforeRemove);
+        } else {
+            bananaBalance = IBEP20(banana).balanceOf(address(this)).sub(_token0BeforeRemove);
+            swapTokenOnApe(banana, bananaBalance, _wbnb);
+            wbnbBalance = IBEP20(_wbnb).balanceOf(address(this)).sub(_token1BeforeRemove);
+        }
+
+        // swap 1/2 WBNB -> HUNNY
+        uint256 amountWbnbToSwap = wbnbBalance.div(2);
+        uint256 amountWbnbRemain = wbnbBalance.sub(amountWbnbToSwap);
+        uint256 hunnyBefore = IBEP20(_hunny).balanceOf(address(this));
+        swapToken(_wbnb, amountWbnbToSwap, _hunny);
+
+        flipAmount = generateFlipToken(IBEP20(_hunny).balanceOf(address(this)).sub(hunnyBefore), amountWbnbRemain);
     }
 
     function swapToken(address _from, uint _amount, address _to) private {

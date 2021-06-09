@@ -4,7 +4,6 @@ pragma solidity ^0.6.12;
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol";
-import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 
 import "./PancakeSwap.sol";
 import "../../interfaces/IHunnyMinter.sol";
@@ -12,28 +11,25 @@ import "../../interfaces/IHunnyOracle.sol";
 import "../../interfaces/legacy/IStakingRewards.sol";
 import "../../interfaces/legacy/IStrategyHelper.sol";
 
-contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
+contract HunnyMinter is IHunnyMinter, PancakeSwap {
     using SafeMath for uint;
     using SafeBEP20 for IBEP20;
 
-    IBEP20 private HUNNY = IBEP20(0x565b72163f17849832A692A3c5928cc502f46D69);
-    IBEP20 private WBNB = IBEP20(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
+    IBEP20 private constant HUNNY = IBEP20(0x565b72163f17849832A692A3c5928cc502f46D69);
+    IBEP20 private constant WBNB = IBEP20(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
 
-    address public dev = address(0xe5F7E3DD9A5612EcCb228392F47b7Ddba8cE4F1a);
+    address public constant dev = address(0xe5F7E3DD9A5612EcCb228392F47b7Ddba8cE4F1a);
 
-    uint public override WITHDRAWAL_FEE_FREE_PERIOD = 2 days;
-    uint public override WITHDRAWAL_FEE = 50;
-    uint public constant FEE_MAX = 10000;
+    uint public override WITHDRAWAL_FEE_FREE_PERIOD;
+    uint public override WITHDRAWAL_FEE;
+    uint public FEE_MAX;
 
-    uint public PERFORMANCE_FEE = 3000; // 30%
+    uint public PERFORMANCE_FEE;
 
-    uint public override hunnyPerProfitBNB = 3200e18;   // 1 BNB earned, mint 3200 HUNNY
-    uint public override hunnyPerBlockLottery = 12e18;  // 12 HUNNY per block for lottery pool
-    uint public hunnyPerHunnyBNBFlip = 150e18;          // 1 HUNNY-BNB, earn 150 HUNNY / 365 days
-    uint public lastLotteryMintBlock;
+    uint public override hunnyPerProfitBNB;
+    uint public hunnyPerHunnyBNBFlip;
 
-    address public HUNNY_POOL = address(0x389D2719a9Bcc29583Db89FD9454ADe9e57CD18d);
-    address public LOTTERY_POOL = address(0);
+    address public constant HUNNY_POOL = address(0x389D2719a9Bcc29583Db89FD9454ADe9e57CD18d);
 
     IHunnyOracle public ORACLE;
     IStrategyHelper public HELPER;
@@ -45,14 +41,25 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         _;
     }
 
-    constructor() public {
-        // vaults and pools
+    function initialize() external initializer {
+        __PancakeSwap_init();
+
+        WITHDRAWAL_FEE_FREE_PERIOD = 2 days;
+        WITHDRAWAL_FEE = 50; // 0.5%
+        FEE_MAX = 10000; // 100%
+
+        PERFORMANCE_FEE = 3000; // 30%
+
+        hunnyPerProfitBNB = 3200e18;   // 1 BNB earned, mint 3200 HUNNY
+        hunnyPerHunnyBNBFlip = 150e18; // 1 HUNNY-BNB, earn 150 HUNNY / 365 days
+
         _minters[address(0x434Af79fd4E96B5985719e3F5f766619DC185EAe)] = true; // HUNNY-BNB pool
         _minters[address(0x12180BB36DdBce325b3be0c087d61Fce39b8f5A4)] = true; // CAKE-BNB vault
         _minters[address(0xD87F461a52E2eB9E57463B9A4E0e97c7026A5DCB)] = true; // BUSD-BNB vault
         _minters[address(0x31972E7bfAaeE72F2EB3a7F68Ff71D0C61162e81)] = true; // USDT-BNB vault
         _minters[address(0x3B34AA6825fA731c69C63d4925d7a2E3F6c7f13C)] = true; // DOGE-BNB vault
         _minters[address(0xb7D43F1beD47eCba4Ad69CcD56dde4474B599965)] = true; // CAKE vault
+        _minters[address(0xAD4134F59C5241d0B4f6189731AA2f7b279D4104)] = true; // BANANA vault
 
         ORACLE = IHunnyOracle(0x9e377Bc8DaB0C30CFBa5e94cE52be1989a644e28);
         HELPER = IStrategyHelper(0x486B662A191E29cF767862ACE492c89A6c834fB4);
@@ -94,10 +101,6 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         hunnyPerHunnyBNBFlip = _hunnyPerHunnyBNBFlip;
     }
 
-    function setHunnyPerBlockLottery(uint _hunnyPerBlockLottery) external onlyOwner {
-        hunnyPerBlockLottery = _hunnyPerBlockLottery;
-    }
-
     function setHelper(IStrategyHelper _helper) external onlyOwner {
         require(address(_helper) != address(0), "zero address");
         HELPER = _helper;
@@ -113,9 +116,6 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
             return false;
         }
 
-        if (block.timestamp < 1605585600) { // 12:00 SGT 17th November 2020
-            return false;
-        }
         return _minters[account];
     }
 
@@ -150,7 +150,10 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         // avoid hunnyBNBAmount manipulation
         uint contribution = HELPER.tvlInBNB(flip, _performanceFee);
         uint mintHunny = amountHunnyToMint(contribution);
-        mint(mintHunny, to);
+
+        if (mintHunny > 0) {
+            mint(mintHunny, to);
+        }
 
         // addition step
         // update oracle price
@@ -170,20 +173,5 @@ contract HunnyMinter is IHunnyMinter, Ownable, PancakeSwap {
         uint hunnyForDev = amount.mul(15).div(100);
         BEP20(address(HUNNY)).mint(hunnyForDev);
         IStakingRewards(HUNNY_POOL).stakeTo(hunnyForDev, dev);
-
-        // mint for lottery pool
-        mintForLottery();
-    }
-
-    // only after when lottery pool address was set
-    // token calculated from the block when dev set lottery pool address only
-    function mintForLottery() private {
-        if (LOTTERY_POOL != address(0)) {
-            uint amountHunny = block.number.sub(lastLotteryMintBlock).mul(hunnyPerBlockLottery);
-            BEP20(address(HUNNY)).mint(amountHunny);
-            HUNNY.transfer(LOTTERY_POOL, amountHunny);
-        }
-
-        lastLotteryMintBlock = block.number;
     }
 }
