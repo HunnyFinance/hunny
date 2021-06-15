@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.6.12;
+pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 /*
@@ -41,8 +41,6 @@ contract HunnyBNBPool is IStrategyLegacy, Ownable {
     using SafeMath for uint256;
 
     IBEP20 private HUNNY;
-    IBEP20 private CAKE = IBEP20(Constants.CAKE);
-    IBEP20 private WBNB = IBEP20(Constants.WBNB);
 
     IBEP20 public token;
     address public presale;
@@ -55,6 +53,10 @@ contract HunnyBNBPool is IStrategyLegacy, Ownable {
     IStrategyHelper public helper;
 
     constructor(address _hunny, address _presale, address _helper) public {
+        require(_hunny != address(0), "!hunny");
+        require(_presale != address(0), "!presale");
+        require(_helper != address(0), "!helper");
+
         HUNNY = IBEP20(_hunny);
         presale = _presale;
         helper = IStrategyHelper(_helper);
@@ -100,9 +102,14 @@ contract HunnyBNBPool is IStrategyLegacy, Ownable {
 
     function profitOf(address account) override public view returns (uint _usd, uint _hunny, uint _bnb) {
         if (address(minter) == address(0) || !minter.isMinter(address(this))) {
-            return (0, 0, 0);
+            _usd = 0;
+            _hunny = 0;
+            _bnb = 0;
         }
-        return (0, minter.amountHunnyToMintForHunnyBNB(balanceOf(account), block.timestamp.sub(depositedAt[account])), 0);
+
+        _usd = 0;
+        _hunny = minter.amountHunnyToMintForHunnyBNB(balanceOf(account), block.timestamp.sub(depositedAt[account]));
+        _bnb = 0;
     }
 
     function tvl() override public view returns (uint) {
@@ -111,15 +118,18 @@ contract HunnyBNBPool is IStrategyLegacy, Ownable {
 
     function apy() override public view returns(uint _usd, uint _hunny, uint _bnb) {
         if (address(minter) == address(0) || !minter.isMinter(address(this))) {
-            return (0, 0, 0);
+            _usd = 0;
+        } else {
+            uint amount = 1e18;
+            uint hunny = minter.amountHunnyToMintForHunnyBNB(amount, 365 days);
+            uint _tvl = helper.tvlInBNB(address(token), amount);
+            uint hunnyPrice = helper.tokenPriceInBNB(address(HUNNY));
+
+            _usd = hunny.mul(hunnyPrice).div(_tvl);
         }
 
-        uint amount = 1e18;
-        uint hunny = minter.amountHunnyToMintForHunnyBNB(amount, 365 days);
-        uint _tvl = helper.tvlInBNB(address(token), amount);
-        uint hunnyPrice = helper.tokenPriceInBNB(address(HUNNY));
-
-        return (hunny.mul(hunnyPrice).div(_tvl), 0, 0);
+        _hunny = 0;
+        _bnb = 0;
     }
 
     function info(address account) override external view returns(UserInfo memory) {
@@ -153,6 +163,7 @@ contract HunnyBNBPool is IStrategyLegacy, Ownable {
     }
 
     function depositTo(uint256, uint256 _amount, address _to) external {
+        require(_to != address(0), "!to");
         require(msg.sender == presale || msg.sender == owner(), "not presale contract");
         _depositTo(_amount, _to);
     }

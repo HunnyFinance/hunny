@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.6.12;
+pragma solidity 0.6.12;
 
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol";
@@ -16,7 +16,6 @@ contract HunnyMinter is IHunnyMinter, PancakeSwap {
     using SafeBEP20 for IBEP20;
 
     IBEP20 private constant HUNNY = IBEP20(0x565b72163f17849832A692A3c5928cc502f46D69);
-    IBEP20 private constant WBNB = IBEP20(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
 
     address public constant dev = address(0xe5F7E3DD9A5612EcCb228392F47b7Ddba8cE4F1a);
 
@@ -37,7 +36,7 @@ contract HunnyMinter is IHunnyMinter, PancakeSwap {
     mapping (address => bool) private _minters;
 
     modifier onlyMinter {
-        require(isMinter(msg.sender) == true, "not minter");
+        require(isMinter(msg.sender), "not minter");
         _;
     }
 
@@ -68,6 +67,7 @@ contract HunnyMinter is IHunnyMinter, PancakeSwap {
     }
 
     function transferHunnyOwner(address _owner) external onlyOwner {
+        require(_owner != address(0), "zero token owner");
         Ownable(address(HUNNY)).transferOwnership(_owner);
     }
 

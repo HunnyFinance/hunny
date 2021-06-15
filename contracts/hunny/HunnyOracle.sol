@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.6.12;
+pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
@@ -56,6 +56,8 @@ contract HunnyOracle is WhitelistUpgradeable {
     }
 
     function addPair(address token, address factory) public onlyOwner {
+        require(address(pairs[token].pair) == address(0), "HUNNY_ORACLE: PAIR_EXISTED");
+
         pairs[token].factory = IUniswapV2Factory(factory);
         pairs[token].pair = IUniswapV2Pair(pairs[token].factory.getPair(token, WBNB));
         pairs[token].token0 = pairs[token].pair.token0();
@@ -93,15 +95,13 @@ contract HunnyOracle is WhitelistUpgradeable {
     // note this will always return 0 before update has been called successfully for the first time.
     function consult(address token, uint amountIn) public view returns (uint amountOut) {
         Pair memory pair = pairs[token];
-        if (address(pair.pair) != address(0)) {
-            if (token == pair.token0) {
-                amountOut = pair.price0Average.mul(amountIn).decode144();
-            } else {
-                require(token == pair.token1, 'HunnyOracle: INVALID_TOKEN');
-                amountOut = pair.price1Average.mul(amountIn).decode144();
-            }
+        require(address(pair.pair) != address(0), "HunnyOracle: INVALID_PAIR");
+
+        if (token == pair.token0) {
+            amountOut = pair.price0Average.mul(amountIn).decode144();
         } else {
-            amountOut = 0;
+            require(token == pair.token1, 'HunnyOracle: INVALID_TOKEN');
+            amountOut = pair.price1Average.mul(amountIn).decode144();
         }
     }
 
