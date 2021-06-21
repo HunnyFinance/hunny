@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.6.12;
+pragma solidity 0.6.12;
 
 import "@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol";
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
@@ -142,13 +142,13 @@ contract StrategyHelperV1 is OwnableUpgradeable {
             } else {
                 bnb = reserve1.mul(amount).div(IBEP20(_flip).totalSupply());
             }
-            return bnb.mul(bnbPriceInUSD()).div(1e18).mul(2);
+            return bnb.mul(bnbPriceInUSD()).mul(2).div(1e18);
         }
 
         // it not safe, because token price in BNB not got from any oracle
         uint balanceToken0 = IBEP20(_token0).balanceOf(_flip);
         uint price = tokenPriceInBNB(_token0);
-        return balanceToken0.mul(price).div(1e18).mul(bnbPriceInUSD()).div(1e18).mul(2);
+        return balanceToken0.mul(price).div(1e18).mul(bnbPriceInUSD()).mul(2).div(1e18);
     }
 
     function tvlInBNB(address _flip, uint amount) public view returns (uint) {
@@ -171,11 +171,11 @@ contract StrategyHelperV1 is OwnableUpgradeable {
             uint bnb;
             (uint256 reserve0, uint256 reserve1,) = IPancakePair(_flip).getReserves();
             if (_token0 == WBNB) {
-                bnb = reserve0.mul(amount).div(IBEP20(_flip).totalSupply());
+                bnb = reserve0.mul(amount).mul(2).div(IBEP20(_flip).totalSupply());
             } else {
-                bnb = reserve1.mul(amount).div(IBEP20(_flip).totalSupply());
+                bnb = reserve1.mul(amount).mul(2).div(IBEP20(_flip).totalSupply());
             }
-            return bnb.mul(2);
+            return bnb;
         }
 
         // it is not safe, need to implement oracle

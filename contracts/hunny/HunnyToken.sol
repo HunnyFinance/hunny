@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.6.12;
+pragma solidity 0.6.12;
 
 /*
 *
@@ -48,8 +48,8 @@ contract HunnyToken is BEP20Virtual('Hunny Token', 'HUNNY') {
     modifier antiWhale(address sender, address recipient, uint256 amount) {
         if (maxTransferAmount() > 0) {
             if (
-                _excludedFromAntiWhale[sender] == false
-                && _excludedFromAntiWhale[recipient] == false
+                !_excludedFromAntiWhale[sender]
+                && !_excludedFromAntiWhale[recipient]
             ) {
                 require(amount <= maxTransferAmount(), "HUNNY::antiWhale: Transfer amount exceeds the maxTransferAmount");
             }
