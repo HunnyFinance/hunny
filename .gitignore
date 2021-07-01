@@ -1,0 +1,15 @@
+# node
+node_modules
+
+# build
+artifacts
+cache
+build
+flatten
+
+# system file
+.idea
+.DS_Store
+
+# yarn
+yarn-error.log
