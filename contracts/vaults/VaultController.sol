@@ -109,8 +109,6 @@ abstract contract VaultController is IVaultController, PausableUpgradeable, Whit
         _minter = IHunnyMinterV2(newMinter);
         if (newMinter != address(0)) {
             require(newMinter == HUNNY.getOwner(), 'VaultController: not hunny minter');
-            _stakingToken.safeApprove(newMinter, 0);
-            _stakingToken.safeApprove(newMinter, uint(~0));
         }
     }
 

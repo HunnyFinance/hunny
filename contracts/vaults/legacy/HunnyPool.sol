@@ -102,7 +102,7 @@ contract HunnyPool is IStrategyLegacy, RewardsDistributionRecipient, ReentrancyG
         } else if (block.timestamp < TIMESTAMP_2_HOURS_AFTER_PRESALE) {
             return _balances[account].sub(_presaleBalance[account]);
         } else {
-            uint soldInPresale = IPresale(presaleContract).totalBalance().div(2).mul(3); // mint 150% of presale for making flip token
+            uint soldInPresale = IPresale(presaleContract).totalBalance().mul(3).div(2); // mint 150% of presale for making flip token
             uint hunnySupply = stakingToken.totalSupply().sub(stakingToken.balanceOf(deadAddress));
             if (soldInPresale >= hunnySupply) {
                 return _balances[account].sub(_presaleBalance[account]);
@@ -219,9 +219,10 @@ contract HunnyPool is IStrategyLegacy, RewardsDistributionRecipient, ReentrancyG
         address[] memory path = new address[](2);
         path[0] = address(stakingToken);
         path[1] = wbnb;
-        ROUTER.swapExactTokensForTokens(rewardHunny, 0, path, address(this), block.timestamp);
 
-        reward = IBEP20(wbnb).balanceOf(address(this));
+        uint256 beforeBalance = IBEP20(wbnb).balanceOf(address(this));
+        ROUTER.swapExactTokensForTokens(rewardHunny, 0, path, address(this), block.timestamp) ;
+        reward = IBEP20(wbnb).balanceOf(address(this)).sub(beforeBalance) ;
     }
 
     function harvest() override external {}

@@ -64,7 +64,6 @@ contract VaultBananaToBanana is VaultController, IStrategy {
 
     function initialize() external initializer {
         __VaultController_init(BANANA);
-        BANANA.safeApprove(address(BANANA_MASTER_CHEF), uint(~0));
 
         setMinter(0x15D70a537Fe24883735e5C5Bd62886Ba8aBc56cA);
     }
@@ -107,7 +106,6 @@ contract VaultBananaToBanana is VaultController, IStrategy {
     // helper function returns reward in banana + hunny
     function profitOf(address account) public view returns (uint _cake, uint _hunny) {
         uint amount = earned(account);
-        uint performanceFee = canMint() ? _minter.performanceFee(amount) : 0;
 
         if (canMint()) {
             uint performanceFee = _minter.performanceFee(amount);
@@ -168,6 +166,8 @@ contract VaultBananaToBanana is VaultController, IStrategy {
         uint performanceFee = canMint() ? _minter.performanceFee(profit) : 0;
 
         if (withdrawalFee.add(performanceFee) > DUST) {
+            BANANA.safeApprove(address(_minter), 0);
+            BANANA.safeApprove(address(_minter), withdrawalFee.add(performanceFee));
             _minter.mintFor(address(BANANA), withdrawalFee, performanceFee, msg.sender, depositTimestamp);
             if (performanceFee > 0) {
                 emit ProfitPaid(msg.sender, profit, performanceFee);
@@ -212,6 +212,8 @@ contract VaultBananaToBanana is VaultController, IStrategy {
         uint depositTimestamp = _depositedAt[msg.sender];
         uint withdrawalFee = canMint() ? _minter.withdrawalFee(amount, depositTimestamp) : 0;
         if (withdrawalFee > DUST) {
+            BANANA.safeApprove(address(_minter), 0);
+            BANANA.safeApprove(address(_minter), withdrawalFee);
             _minter.mintFor(address(BANANA), withdrawalFee, 0, msg.sender, depositTimestamp);
             amount = amount.sub(withdrawalFee);
         }
@@ -234,6 +236,8 @@ contract VaultBananaToBanana is VaultController, IStrategy {
         uint depositTimestamp = _depositedAt[msg.sender];
         uint performanceFee = canMint() ? _minter.performanceFee(amount) : 0;
         if (performanceFee > DUST) {
+            BANANA.safeApprove(address(_minter), 0);
+            BANANA.safeApprove(address(_minter), performanceFee);
             _minter.mintFor(address(BANANA), 0, performanceFee, msg.sender, depositTimestamp);
             amount = amount.sub(performanceFee);
         }
@@ -249,6 +253,9 @@ contract VaultBananaToBanana is VaultController, IStrategy {
     // safe check banana balance
     function _depositStakingToken(uint amount) private returns(uint bananaHarvested) {
         uint before = BANANA.balanceOf(address(this));
+
+        BANANA.safeApprove(address(BANANA_MASTER_CHEF), 0);
+        BANANA.safeApprove(address(BANANA_MASTER_CHEF), amount);
         BANANA_MASTER_CHEF.enterStaking(amount);
         bananaHarvested = BANANA.balanceOf(address(this)).add(amount).sub(before);
     }
@@ -296,6 +303,7 @@ contract VaultBananaToBanana is VaultController, IStrategy {
     /* ========== SALVAGE PURPOSE ONLY ========== */
     // @dev _stakingToken(BANANA) must not remain balance in this contract. So dev should be able to salvage staking token transferred by mistake.
     function recoverToken(address _token, uint amount) virtual external override onlyOwner {
+        require(address(_stakingToken) != _token, "!token");
         IBEP20(_token).safeTransfer(owner(), amount);
         emit Recovered(_token, amount);
     }
