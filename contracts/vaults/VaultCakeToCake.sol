@@ -268,6 +268,8 @@ contract VaultCakeToCake is VaultController, IStrategy {
     function _harvest(uint cakeAmount) private {
         if (cakeAmount > 0) {
             emit Harvested(cakeAmount);
+            CAKE.safeApprove(address(CAKE_MASTER_CHEF), 0);
+            CAKE.safeApprove(address(CAKE_MASTER_CHEF), cakeAmount);
             CAKE_MASTER_CHEF.enterStaking(cakeAmount);
         }
     }

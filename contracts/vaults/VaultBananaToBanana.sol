@@ -269,6 +269,8 @@ contract VaultBananaToBanana is VaultController, IStrategy {
     function _harvest(uint bananaAmount) private {
         if (bananaAmount > 0) {
             emit Harvested(bananaAmount);
+            BANANA.safeApprove(address(BANANA_MASTER_CHEF), 0);
+            BANANA.safeApprove(address(BANANA_MASTER_CHEF), bananaAmount);
             BANANA_MASTER_CHEF.enterStaking(bananaAmount);
         }
     }
